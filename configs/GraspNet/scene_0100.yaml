@@ -11,7 +11,7 @@ mapping:
   vis_inside_freq: 100
   iters_first: 150
   iters: 50
-  ckpt_freq: 100
+  ckpt_freq: 1
   no_log_on_first_frame: False
 rendering:
   n_stratified: 32

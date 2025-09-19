@@ -306,6 +306,7 @@ class GraspNet(BaseDataset):
                 continue
             pose_index_list.append(idx)
             sampled_pose_list.append(poses[idx])
+        print(f"sampled {len(sampled_pose_list)} poses")
         return sampled_pose_list, pose_index_list
 
     def __getitem__(self, index):

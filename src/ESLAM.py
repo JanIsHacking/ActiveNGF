@@ -59,7 +59,7 @@ from src.utils.Renderer import Renderer, GraspnessRender
 from GraspNet.inference import GraspnessPredictor
 
 torch.multiprocessing.set_sharing_strategy('file_system')
-wandb.login()
+#wandb.login()
 
 class ESLAM():
     """
@@ -150,9 +150,11 @@ class ESLAM():
         self.shared_decoders = self.shared_decoders.to(self.device)
         self.shared_decoders.share_memory()
         if cfg['model']['grasp_output']:
+            print("Graspness output is enabled")
             self.renderer = GraspnessRender(cfg,self)
             self.grasper = GraspnessPredictor(cfg, self)
         else:
+            print("Graspness output is disabled")
             self.renderer = Renderer(cfg, self)
 
         self.mesher = Mesher(cfg, args, self)

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import open3d as o3d
+import datetime
 
 import os
 import time
@@ -112,6 +113,59 @@ class Mapper(object):
             sdf_trunc=0.04,
             color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
         )
+
+        self.time_stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def get_planes(self):
+        return (
+            self.planes_xy,
+            self.planes_xz,
+            self.planes_yz,
+            self.c_planes_xy,
+            self.c_planes_xz,
+            self.c_planes_yz,
+            self.g_planes_xy,
+            self.g_planes_xz,
+            self.g_planes_yz
+        )
+    
+    def load_checkpoint(self, path: str) -> None:
+        """
+        Load a checkpoint and update Mapper state.
+
+        Args:
+            path (str): Path to checkpoint file (.tar).
+        """
+        checkpoint = torch.load(path, map_location=self.device)
+
+        # Restore decoder weights
+        self.decoders.load_state_dict(checkpoint['decoder_state_dict'])
+
+        # Restore poses
+        self.gt_c2w_list = checkpoint['gt_c2w_list']
+        self.estimate_c2w_list = checkpoint['estimate_c2w_list']
+
+        # Restore keyframes
+        self.keyframe_list = checkpoint['keyframe_list']
+
+        # Restore planes
+        (
+            self.planes_xy,
+            self.planes_xz,
+            self.planes_yz,
+            self.c_planes_xy,
+            self.c_planes_xz,
+            self.c_planes_yz,
+            self.g_planes_xy,
+            self.g_planes_xz,
+            self.g_planes_yz
+        ) = checkpoint['all_planes']
+
+        # Restore index
+        self.idx = checkpoint['idx']
+
+        if self.verbose:
+            print(f"Loaded checkpoint from {path}")
 
     def sdf_losses(self, sdf, z_vals, gt_depth):
         """
@@ -401,6 +455,7 @@ class Mapper(object):
                 0, H, 0, W, pixs_per_image, H, W, fx, fy, cx, cy, c2ws_, gt_depths, gt_colors, device, gt_graspness)
 
             # should pre-filter those out of bounding box depth value
+            # print(f"batch_rays_o: {batch_rays_o.shape}, batch_rays_d: {batch_rays_d.shape}, batch_gt_depth: {batch_gt_depth.shape}, batch_gt_color: {batch_gt_color.shape}, batch_gt_graspness: {batch_gt_graspness.shape}")
             with torch.no_grad():
                 det_rays_o = batch_rays_o.clone().detach().unsqueeze(-1)
                 det_rays_d = batch_rays_d.clone().detach().unsqueeze(-1)
@@ -454,6 +509,7 @@ class Mapper(object):
             Returns:
                 None
         """
+
 
         cfg = self.cfg
         all_planes = (
@@ -555,6 +611,9 @@ class Mapper(object):
                 self.keyframe_dict.append({'gt_c2w': gt_c2w, 'idx': idx, 'color': gt_color.to(self.keyframe_device),
                                            'depth': gt_depth.to(self.keyframe_device), 'est_c2w': cur_c2w.clone(),
                                            'graspness': gt_graspness.to(self.keyframe_device)})
+                
+            # Saving model checkpoint
+            # self.save_checkpoint(f'{self.output}/ckpts/{self.time_stamp}/{idx:05d}.tar')
 
             init_phase = False
             self.mapping_first_frame[0] = 1  # mapping of first frame is done, can begin tracking

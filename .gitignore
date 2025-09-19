@@ -6,3 +6,11 @@ Datasets
 qsub*
 scripts/eval*
 *.tar
+data
+venv
+wandb
+**/__pycache__
+GraspNet/pointnet2/build
+GraspNet/pointnet2/dist
+GraspNet/pointnet2/pointnet2.egg-info
+mink

@@ -310,6 +310,49 @@ class GraspnessRender(Renderer):
         # uncertainty = torch.sum(weights * weights*raw[..., 5],dim=-1)
         uncertainty = torch.mean(raw[..., 5], dim=-1)
         return rendered_depth, rendered_rgb, rendered_graspness, raw[..., 3], z_vals, uncertainty
+    
+    def render_pointcloud(
+        self,
+        all_planes,
+        decoders,
+        points: torch.Tensor,
+        device: torch.device,
+        truncation: float
+    ):
+        """
+        Render depth, color, and other properties for a point cloud.
+        Args:
+            all_planes (Tuple): all feature planes.
+            decoders (torch.nn.Module): decoders for TSDF and color.
+            points (tensor): [N, 3] input point cloud in world coordinates.
+            device (torch.device): device to run on.
+            truncation (float): truncation threshold (kept for consistency).
+        Returns:
+            depth_map (tensor): per-point depth relative to origin (L2 norm).
+            color_map (tensor): per-point RGB color.
+            graspness (tensor): per-point graspness score (from raw[...,4]).
+            sdf (tensor): signed distance field values for each point.
+            uncertainty (tensor): per-point uncertainty estimate.
+        """
+
+        # normalize to [-1, 1] grid coords for decoder
+        pts_nor = normalize_3d_coordinate(points.clone(), self.bound)
+
+        # query decoder
+        raw = decoders(points.unsqueeze(1), all_planes)  # [N, 1, C]
+        raw = raw.squeeze(1)  # [N, C]
+
+        # extract fields
+        sdf = raw[..., 3]
+        alpha = self.sdf2alpha(sdf, decoders.beta)
+
+        # outputs
+        color_map = raw[..., :3]
+        depth_map = torch.norm(points, dim=-1)  # distance from origin
+        graspness = raw[..., 4]
+        uncertainty = raw[..., 5]
+
+        return depth_map, color_map, graspness, sdf, uncertainty
 
     def render_batch_ray_wo_gtdepth(self, all_planes, decoders, rays_d, rays_o, device, truncation):
         """
