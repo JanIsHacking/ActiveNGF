@@ -59,8 +59,8 @@ from src.utils.Renderer import Renderer, GraspnessRender
 from GraspNet.inference import GraspnessPredictor
 
 torch.multiprocessing.set_sharing_strategy('file_system')
-#wandb.login()
 
+#wandb.login()
 class ESLAM():
     """
     ESLAM main class.
@@ -71,7 +71,6 @@ class ESLAM():
     """
 
     def __init__(self, cfg, args, wandb):
-
         self.cfg = cfg
         self.args = args
 
@@ -304,6 +303,9 @@ class ESLAM():
         """
         self.mapping(0)
 
+print("yes8")
 # This part is required by torch.multiprocessing
 if __name__ == '__main__':
     pass
+
+print("yes9")

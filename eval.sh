@@ -4,4 +4,5 @@ python eval.py \
     --scene_dir /workspace/output/GraspNet/scene_0100_nbv \
     --dataset_root /data/graspnet \
     --scene_id 0100 \
-    --config configs/GraspNet/scene_0100.yaml
+    --config configs/GraspNet/scene_0100.yaml \
+    --graspnet_checkpoint /workspace/ckpts2/checkpoint.tar
