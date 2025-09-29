@@ -102,18 +102,21 @@ def evaluate(mesh_file: str, scene_id: int, mapper, gne: GraspNetEvalComplete, f
     # Read the mesh and sample points
     mesh = trimesh.load(mesh_file, process=True)
     if isinstance(mesh, trimesh.Scene):
+        scene_meshes = []
         for scene_mesh in mesh.geometry.values():
             scene_meshes.append(scene_mesh)
         mesh = trimesh.util.concatenate(scene_meshes)
     points = trimesh.sample.sample_surface(mesh, mesh_num_sample_points)[0]
 
     # Get the graspness values of the points
+    print("Getting graspness values of the points")
     renderer = mapper.renderer
     planes = mapper.get_planes()
     points_torch = torch.from_numpy(points).float().to(mapper.device)
     graspness = renderer.render_pointcloud(planes, mapper.decoders, points_torch, mapper.device, mapper.truncation)[2]
 
     # Threshold the graspness values and perform furthest point sampling
+    print("Thresholding the graspness values and performing furthest point sampling")
     graspness_mask = (graspness > graspness_threshold).cpu().numpy()
     points = points[graspness_mask]
     points = furthest_point_sampling(points, fps_num_sample_points)
@@ -122,6 +125,7 @@ def evaluate(mesh_file: str, scene_id: int, mapper, gne: GraspNetEvalComplete, f
     dump_dir = os.path.join(scene_dir, "grasps", f"{frame_idx:05d}")
     dump_file = os.path.join(dump_dir, scene_id_str, camera, 'result.npy')
     os.makedirs(os.path.dirname(dump_file), exist_ok=True)
+    print("Generating grasps for scene: ", scene_id_str)
     grasp_group = generate_grasps_for_scene(
         dataset_root=dataset_root,
         scene_id=scene_id_str,
@@ -149,6 +153,7 @@ def main(scene_dir: str, dataset_root: str, scene_id: int, mapper, graspnet_chec
     results = {}
     mesh_dir = os.path.join(scene_dir, "mesh")
     for mesh_file in sorted(glob.glob(os.path.join(mesh_dir, "*.ply"))):
+        print("Evaluating mesh file: ", mesh_file)
         # Load the mapping steps mapper
         frame_idx = int(os.path.basename(mesh_file).split("_")[0])
         mapper.load_checkpoint(os.path.join(mapper.output, 'ckpts', f'{frame_idx:05d}.tar'))

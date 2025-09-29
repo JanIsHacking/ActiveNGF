@@ -303,9 +303,6 @@ class ESLAM():
         """
         self.mapping(0)
 
-print("yes8")
 # This part is required by torch.multiprocessing
 if __name__ == '__main__':
     pass
-
-print("yes9")

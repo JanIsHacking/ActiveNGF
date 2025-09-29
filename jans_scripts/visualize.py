@@ -25,6 +25,9 @@ pointmap_colors = [
     
 ]
 
+def visualize_gt_points(gt_points: torch.Tensor, num_points: int = 10000):
+    gt_points = gt_points.cpu().numpy()
+    rr.log(f"world/gt_points", rr.Points3D(gt_points[np.random.choice(gt_points.shape[0], size=num_points, replace=False)], colors=[255, 0, 0]))
 
 def setup_rerun(name: str, show_origin: bool = True):
     rr.init(name)
