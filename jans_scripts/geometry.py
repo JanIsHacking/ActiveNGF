@@ -1,7 +1,39 @@
 import torch
-import trimesh
-import os
 import numpy as np
+from typing import Tuple
+from scipy.spatial.transform import Rotation as R
+
+
+def furthest_point_sampling(points: np.ndarray, num_samples: int) -> np.ndarray:
+    """
+    Perform Furthest Point Sampling (FPS) on a set of points.
+
+    Args:
+        points (np.ndarray): Array of shape (N, D), where N is the number of points
+                             and D is the dimensionality (e.g., 3 for 3D points).
+        num_samples (int): Number of points to sample.
+
+    Returns:
+        np.ndarray: Subset of points of shape (num_samples, D).
+    """
+    N, D = points.shape
+    sampled_indices = np.zeros(num_samples, dtype=np.int32)
+    distances = np.ones(N) * np.inf
+
+    # Pick a random seed point
+    seed_idx = np.random.randint(0, N)
+    sampled_indices[0] = seed_idx
+
+    for i in range(1, num_samples):
+        # Update distances to the set of chosen points
+        last_sampled = points[sampled_indices[i - 1]]
+        dist = np.linalg.norm(points - last_sampled, axis=1)
+        distances = np.minimum(distances, dist)
+
+        # Pick the farthest point from current set
+        sampled_indices[i] = np.argmax(distances)
+
+    return points[sampled_indices]
 
 
 def invert_se3_batch(T: torch.Tensor) -> torch.Tensor:
@@ -46,3 +78,34 @@ def compute_pointmap(depth: torch.Tensor, intrinsics: torch.Tensor, cam2world: t
     points_cam = points_cam.reshape(h, w, 3)
 
     return points_cam
+
+
+
+def transform_pointcloud(
+    pointcloud: np.ndarray,
+    pos_in_world: Tuple[float, float, float],
+    ori_in_world: Tuple[float, float, float, float]
+) -> np.ndarray:
+    """
+    Transform a point cloud from object coordinates into world coordinates.
+
+    Args:
+        pointcloud: (N, 3) numpy array of 3D points in object coordinates.
+        pos_in_world: (3,) translation vector [x, y, z].
+        ori_in_world: (4,) quaternion [x, y, z, w].
+
+    Returns:
+        (N, 3) numpy array of transformed points in world coordinates.
+    """
+    pointcloud = np.asarray(pointcloud)
+    if pointcloud.shape[1] != 3:
+        raise ValueError("pointcloud must be of shape (N, 3)")
+
+    # Create rotation matrix from quaternion
+    rot = R.from_quat(ori_in_world)
+    R_mat = rot.as_matrix()  # (3, 3)
+
+    # Apply transformation
+    transformed = (R_mat @ pointcloud.T).T + np.array(pos_in_world)
+
+    return transformed

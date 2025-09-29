@@ -18,38 +18,6 @@ camera = 'realsense'
 dump_folder = ''
 
 
-def furthest_point_sampling(points: np.ndarray, num_samples: int) -> np.ndarray:
-    """
-    Perform Furthest Point Sampling (FPS) on a set of points.
-
-    Args:
-        points (np.ndarray): Array of shape (N, D), where N is the number of points
-                             and D is the dimensionality (e.g., 3 for 3D points).
-        num_samples (int): Number of points to sample.
-
-    Returns:
-        np.ndarray: Subset of points of shape (num_samples, D).
-    """
-    N, D = points.shape
-    sampled_indices = np.zeros(num_samples, dtype=np.int32)
-    distances = np.ones(N) * np.inf
-
-    # Pick a random seed point
-    seed_idx = np.random.randint(0, N)
-    sampled_indices[0] = seed_idx
-
-    for i in range(1, num_samples):
-        # Update distances to the set of chosen points
-        last_sampled = points[sampled_indices[i - 1]]
-        dist = np.linalg.norm(points - last_sampled, axis=1)
-        distances = np.minimum(distances, dist)
-
-        # Pick the farthest point from current set
-        sampled_indices[i] = np.argmax(distances)
-
-    return points[sampled_indices]
-
-
 def mesh_to_pointcloud(mesh_file: str, num_points: int = 20000) -> np.ndarray:
     """
     Sample a point cloud from a mesh.
