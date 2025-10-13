@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 
-def parse_graspnet_scene(xml_path: str | Path) -> List[Dict[str, Any]]:
+def parse_graspnet_scene(xml_path: str) -> List[Dict[str, Any]]:
     """
     Parse a GraspNet XML scene file containing object poses.
 

@@ -5,4 +5,5 @@ python eval.py \
     --dataset_root /data/graspnet \
     --scene_id 0100 \
     --config configs/GraspNet/scene_0100.yaml \
-    --graspnet_checkpoint /workspace/ckpts2/checkpoint.tar
+    --graspnet_checkpoint /workspace/ckpts2/checkpoint.tar \
+    --force

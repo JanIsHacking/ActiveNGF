@@ -25,6 +25,74 @@ pointmap_colors = [
     
 ]
 
+def visualize_pc_with_normals(
+    points: torch.Tensor,
+    normals: torch.Tensor,
+    colors: torch.Tensor = None,
+    num_points: int = 10000,
+    suffix: str = "normals",
+    normal_length: float = None
+):
+    """
+    Visualizes a point cloud along with per-point normal vectors in Rerun.
+
+    Args:
+        points: (N, 3) torch.Tensor of 3D point positions
+        normals: (N, 3) torch.Tensor of corresponding normal vectors
+        colors: (N, 3) torch.Tensor of RGB colors in range [0, 255] (optional)
+        num_points: number of points to visualize (randomly sampled if larger)
+        suffix: identifier suffix for the Rerun log path
+        normal_length: desired length for normal vectors (optional, keeps original length if None)
+    """
+    # Move tensors to CPU and numpy
+    points_np = points.cpu().numpy()
+    normals_np = normals.cpu().numpy()
+    
+    # Handle colors
+    if colors is not None:
+        colors_np = colors.cpu().numpy()
+    else:
+        colors_np = np.tile(np.array([[0, 255, 255]]), (points_np.shape[0], 1))  # cyan by default
+
+    # Random subsample to avoid overloading the viewer
+    num_points = min(num_points, points_np.shape[0])
+    indices = np.random.choice(points_np.shape[0], size=num_points, replace=False)
+
+    sampled_points = points_np[indices]
+    sampled_normals = normals_np[indices]
+    sampled_colors = colors_np[indices]
+
+    # Normalize normal vectors to desired length if specified
+    if normal_length is not None:
+        # Compute current lengths
+        current_lengths = np.linalg.norm(sampled_normals, axis=1, keepdims=True)
+        # Avoid division by zero
+        current_lengths = np.where(current_lengths == 0, 1, current_lengths)
+        # Scale to desired length
+        sampled_normals = sampled_normals * (normal_length / current_lengths)
+
+    # Log point cloud
+    rr.log(f"world/pc_with_normals/{suffix}/points", rr.Points3D(sampled_points, colors=sampled_colors))
+
+    # Log normals as vectors (arrows) originating from each point
+    rr.log(
+        f"world/pc_with_normals/{suffix}/normals",
+        rr.Arrows3D(
+            origins=sampled_points,
+            vectors=sampled_normals,
+            colors=[[255, 255, 0]]  # yellow arrows by default
+        )
+    )
+
+def visualize_pc(pc: torch.Tensor, colors: torch.Tensor = None, num_points: int = 10000, suffix: str = "base"):
+    pc = pc.cpu().numpy()
+    if colors is not None:
+        colors = colors.cpu().numpy()
+    else:
+        colors = [255, 0, 0]
+    pc = pc[np.random.choice(pc.shape[0], size=num_points, replace=False)]
+    rr.log(f"world/pc/{suffix}", rr.Points3D(pc, colors=colors))
+
 def visualize_gt_points(gt_points: torch.Tensor, num_points: int = 10000, suffix: str = "base"):
     gt_points = gt_points.cpu().numpy()
     rr.log(f"world/gt_points/{suffix}", rr.Points3D(gt_points[np.random.choice(gt_points.shape[0], size=num_points, replace=False)], colors=[255, 0, 0]))

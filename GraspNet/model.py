@@ -3,6 +3,7 @@ import os
 import sys
 import numpy as np
 import torch
+import pickle
 import torch.nn as nn
 import torch.nn.functional as F
 import MinkowskiEngine as ME
@@ -16,6 +17,7 @@ import pytorch_utils as pt_utils
 from pointnet2_utils import furthest_point_sample
 from pointnet2_utils import CylinderQueryAndGroup
 from GraspNet.utils import batch_viewpoint_params_to_matrix,generate_grasp_views
+from jans_scripts.geometry import point_in_bounding_box
 
 device = torch.device('cuda:0')
 
@@ -237,6 +239,11 @@ class ApproachNet_regression_view_fps(nn.Module):
             nn.Conv1d(self.in_dim, 3, 1),
         )
 
+    def object_balance_sampling(self, end_points, samples_per_object=5):
+        """
+        """
+        pass
+
     def forward(self, seed_xyz, seed_features, end_points, nerf_graspness = None):
         """ Forward pass.
 
@@ -255,6 +262,8 @@ class ApproachNet_regression_view_fps(nn.Module):
         end_points['fp2_xyz'] = seed_xyz
         graspable = self.graspable_head(seed_features)
         objectness_score = graspable[:, :2]
+        print(objectness_score.shape)
+        print(objectness_score)
         if nerf_graspness is None:
             graspness_score = graspable[:, 2]
         else:
@@ -275,6 +284,108 @@ class ApproachNet_regression_view_fps(nn.Module):
             graspable_inds_list.append(graspable_inds)
         graspable_inds = torch.cat(graspable_inds_list, dim=0)
 
+        # Take the top 5 grasps per object
+        object_bounding_boxes = end_points['object_bounding_boxes']
+        
+        print(f"🔍 DEBUG: Starting object-based grasp selection")
+        print(f"📊 DEBUG: Original graspable_inds shape: {graspable_inds.shape}")
+        print(f"📦 DEBUG: Number of objects with bounding boxes: {len(object_bounding_boxes)}")
+        print(f"📦 DEBUG: Object IDs: {list(object_bounding_boxes.keys())}")
+        
+        # Group graspable points by object and select top 5 per object
+        object_grasp_inds = {}
+        for i in range(B):
+            print(f"\n🔄 DEBUG: Processing batch {i}")
+            
+            # Get graspable points and their scores for this batch
+            batch_graspable_inds = graspable_inds[i]  # (num_graspable,)
+            batch_graspable_scores = torch.gather(graspness_score[i], 0, batch_graspable_inds)  # (num_graspable,)
+            batch_graspable_xyz = torch.gather(seed_xyz[i], 0, batch_graspable_inds.unsqueeze(1).repeat(1, 3))  # (num_graspable, 3)
+
+            # Store the xyz and bounding boxes
+            torch.save(batch_graspable_xyz, f"jans_scripts/data/batch_graspable_xyz_{i}.pt")
+            with open(f"jans_scripts/data/object_bounding_boxes_{i}.pkl", "wb") as f:
+                pickle.dump(object_bounding_boxes, f)
+            
+            print(f"📊 DEBUG: Batch {i} - Initial graspable points: {len(batch_graspable_inds)}")
+            print(f"📊 DEBUG: Batch {i} - Graspness scores range: [{batch_graspable_scores.min():.4f}, {batch_graspable_scores.max():.4f}]")
+            
+            # Sort by graspness score in descending order
+            sorted_indices = torch.argsort(batch_graspable_scores, descending=True)
+            sorted_graspable_inds = batch_graspable_inds[sorted_indices]
+            sorted_graspable_xyz = batch_graspable_xyz[sorted_indices]
+            
+            # Initialize object grasp dictionary for this batch
+            batch_object_grasps = {}
+            
+            # Go through graspable points in descending order of graspness score
+            points_assigned = 0
+            points_skipped = 0
+            for grasp_idx, grasp_xyz in zip(sorted_graspable_inds, sorted_graspable_xyz):
+                grasp_point = grasp_xyz.cpu().numpy()
+                
+                # Find which object this grasp point belongs to
+                assigned_object = None
+                for obj_id, bbox in object_bounding_boxes.items():
+                    # Check if point is within bounding box
+                    if point_in_bounding_box(grasp_point, bbox[0], bbox[1]):
+                        assigned_object = obj_id
+                        break
+                
+                # If point belongs to an object and we haven't reached 5 grasps for that object
+                if assigned_object is not None:
+                    if assigned_object not in batch_object_grasps:
+                        batch_object_grasps[assigned_object] = []
+                    
+                    if len(batch_object_grasps[assigned_object]) < 5:
+                        batch_object_grasps[assigned_object].append(grasp_idx.item())
+                        points_assigned += 1
+                    else:
+                        points_skipped += 1
+                else:
+                    points_skipped += 1
+            
+            print(f"📊 DEBUG: Batch {i} - Points assigned to objects: {points_assigned}")
+            print(f"📊 DEBUG: Batch {i} - Points skipped (no object or object full): {points_skipped}")
+            print(f"📦 DEBUG: Batch {i} - Objects with grasps: {list(batch_object_grasps.keys())}")
+            
+            # Print grasps per object
+            for obj_id, grasp_inds in batch_object_grasps.items():
+                print(f"   🎯 Object {obj_id}: {len(grasp_inds)} grasps")
+            
+            # Store results for this batch
+            object_grasp_inds[i] = batch_object_grasps
+        
+        # Collect all selected grasp indices
+        selected_grasp_inds_list = []
+        total_selected_grasps = 0
+        for i in range(B):
+            batch_selected_inds = []
+            for obj_id, grasp_inds in object_grasp_inds[i].items():
+                batch_selected_inds.extend(grasp_inds)
+            
+            print(f"📊 DEBUG: Batch {i} - Total selected grasps: {len(batch_selected_inds)}")
+            total_selected_grasps += len(batch_selected_inds)
+            
+            if batch_selected_inds:
+                # Convert to tensor with reduced number of graspable points
+                batch_selected_inds = torch.tensor(batch_selected_inds, device=graspable_inds.device, dtype=graspable_inds.dtype)
+            else:
+                # If no grasps were selected, use original graspable_inds
+                batch_selected_inds = graspable_inds[i]
+            
+            selected_grasp_inds_list.append(batch_selected_inds.unsqueeze(0))
+        
+        print(f"\n📊 DEBUG: Total selected grasps across all batches: {total_selected_grasps}")
+        
+        # Update graspable_inds with selected grasps (reduced number)
+        if selected_grasp_inds_list:
+            graspable_inds = torch.cat(selected_grasp_inds_list, dim=0)
+            print(f"📊 DEBUG: New graspable_inds shape: {graspable_inds.shape}")
+            print(f"📊 DEBUG: Reduction factor: {graspable_inds.shape[1] / (graspable_inds.shape[0] * 1024):.2f}x")
+        else:
+            print("⚠️  DEBUG: No grasps were selected, keeping original graspable_inds")
+
         # graspable_inds = self.object_balance_sampling(end_points,samples_per_object=128)
 
         graspable_xyz = torch.gather(seed_xyz, 1, graspable_inds.unsqueeze(2).repeat(1, 1, 3))
@@ -282,6 +393,9 @@ class ApproachNet_regression_view_fps(nn.Module):
                                           graspable_inds.unsqueeze(2).repeat(1, 1, 256))
         graspable_features = graspable_features.permute(0, 2, 1)
         _, num_seed, _ = graspable_xyz.size()
+
+        # Save the graspable xyz
+        torch.save(graspable_xyz, f"jans_scripts/data/graspable_xyz.pt")
 
         end_points['fp2_xyz'] = graspable_xyz
         end_points['fp2_inds'] = graspable_inds

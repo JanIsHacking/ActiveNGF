@@ -12,10 +12,9 @@ mapping:
   iters_first: 150
   iters: 50
   ckpt_freq: 1
-  no_log_on_first_frame: False
+  no_log_on_first_frame: false
 rendering:
   n_stratified: 32
   n_importance: 8
-
 model:
   grasp_output: online

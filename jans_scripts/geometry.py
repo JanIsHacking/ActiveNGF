@@ -109,3 +109,27 @@ def transform_pointcloud(
     transformed = (R_mat @ pointcloud.T).T + np.array(pos_in_world)
 
     return transformed
+
+
+def point_in_bounding_box(point: np.ndarray, 
+                          box_p1: np.ndarray, 
+                          box_p2: np.ndarray) -> bool:
+    """
+    Check if a 3D point lies within (or on) an axis-aligned bounding box defined by two opposite corners.
+    
+    Args:
+        point: (x, y, z) coordinates of the point.
+        box_p1: (x, y, z) coordinates of the first corner of the bounding box.
+        box_p2: (x, y, z) coordinates of the opposite corner of the bounding box.
+    
+    Returns:
+        True if the point lies inside or on the box, False otherwise.
+    """
+    p = point
+    b1 = np.array(box_p1)
+    b2 = np.array(box_p2)
+
+    min_corner = np.minimum(b1, b2)
+    max_corner = np.maximum(b1, b2)
+    
+    return np.all(p >= min_corner) and np.all(p <= max_corner)
