@@ -73,6 +73,7 @@ class ESLAM():
     def __init__(self, cfg, args, wandb):
         self.cfg = cfg
         self.args = args
+        self.force = args.force
 
         self.verbose = cfg['verbose']
         self.device = cfg['device']

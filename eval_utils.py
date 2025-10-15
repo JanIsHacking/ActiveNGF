@@ -8,6 +8,12 @@ from graspnetAPI.utils.eval_utils import *
 import os
 import torch
 
+MAPPING_DEPTH_SOURCES = [
+    "baseline",
+    "rayst3r",
+    "gt"
+]
+
 
 def eval_grasp(grasp_group, models, dexnet_models, poses, config, table=None, voxel_size=0.008, TOP_K=50):
     '''

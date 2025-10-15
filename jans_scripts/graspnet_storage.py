@@ -5,8 +5,8 @@ import trimesh
 from jans_scripts.utils import parse_graspnet_scene
 from jans_scripts.geometry import transform_pointcloud
 
-graspnet_data_path = "/data/graspnet"
-#graspnet_data_path = "/data/user/jan/graspnet"
+# graspnet_data_path = "/data/graspnet"
+graspnet_data_path = "/data/user/jan/graspnet"
 
 def get_scene_gt_points(scene_id: str, camera: str, view: str = "0000"):
     object_ids_path = f"{graspnet_data_path}/scenes/{scene_id}/object_id_list.txt"

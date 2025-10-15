@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import open3d as o3d
 import datetime
+import json
 
 import os
 import time
@@ -13,6 +14,7 @@ from src.common import (get_samples, random_select, matrix_to_cam_pose, cam_pose
 from src.utils.datasets import get_dataset, SeqSampler
 from src.utils.Frame_Visualizer import Frame_Visualizer
 from src.tools.cull_mesh import cull_mesh
+from eval_utils import MAPPING_DEPTH_SOURCES
 
 
 class Mapper(object):
@@ -28,6 +30,7 @@ class Mapper(object):
 
         self.cfg = cfg
         self.args = args
+        self.force = args.force
 
         self.idx = eslam.idx
         self.truncation = eslam.truncation
@@ -270,7 +273,7 @@ class Mapper(object):
         return selected_keyframes
 
     def optimize_mapping(self, iters, lr_factor, idx, cur_gt_color, cur_gt_depth, gt_cur_c2w, keyframe_dict,
-                                  keyframe_list, cur_c2w, cur_gt_graspness=None):
+                                  keyframe_list, cur_c2w, cur_gt_graspness=None, scene_idx=None):
         """
         Mapping iterations. Sample pixels from selected keyframes,
         then optimize scene representation and camera poses(if joint_opt enables).
@@ -285,7 +288,8 @@ class Mapper(object):
             keyframe_dict (list): a list of dictionaries of keyframes info.
             keyframe_list (list): list of keyframes indices.
             cur_c2w (tensor): the estimated camera to world matrix of current frame.
-
+            cur_gt_graspness (tensor): the graspness of the current frame.
+            scene_idx (int): the index of the scene.
         Returns:
             cur_c2w: return the updated cur_c2w, return the same input cur_c2w if no joint_opt
         """
@@ -410,7 +414,7 @@ class Mapper(object):
 
             ## SDF losses
             sdf_loss = self.sdf_losses(sdf[depth_mask], z_vals[depth_mask], batch_gt_depth[depth_mask])
-            self.wandb_run.log({"sdf_loss": sdf_loss})
+            #self.wandb_run.log({"sdf_loss": sdf_loss})
             loss = sdf_loss
 
             ## Color loss
@@ -419,12 +423,12 @@ class Mapper(object):
 
             color_loss = torch.mean(0.5 * torch.log(uncertainty)) + torch.mean(
                 0.5 * color_loss_ / (uncertainty.unsqueeze(-1))) + 4
-            self.wandb_run.log({"color_loss": color_loss})
+            #self.wandb_run.log({"color_loss": color_loss})
             loss = loss + self.w_color * color_loss * 0.01
 
             ### Depth loss
             depth_loss = torch.square(batch_gt_depth[depth_mask] - depth[depth_mask]).mean()
-            self.wandb_run.log({"depth_loss": depth_loss})
+            #self.wandb_run.log({"depth_loss": depth_loss})
             loss = loss + self.w_depth * depth_loss
 
             optimizer.zero_grad()
@@ -439,8 +443,7 @@ class Mapper(object):
 
         render_depth, _, _ = self.renderer.render_img(all_planes, self.decoders, cur_c2w, self.truncation,
                                                       self.device, gt_depth=cur_gt_depth)
-        cur_gt_graspness, objectness_mask = self.grasper.inference(render_depth)
-        # cur_gt_graspness, objectness_mask = self.grasper.inference(cur_gt_depth)
+        cur_gt_graspness, objectness_mask = self.get_graspness_and_objectness(render_depth, scene_idx)
         cur_gt_graspness = cur_gt_graspness.squeeze(0)
         gt_graspness_list.pop(-1)
         gt_graspness_list.append(cur_gt_graspness)
@@ -474,15 +477,31 @@ class Mapper(object):
                                                                                                self.truncation,
                                                                                                gt_depth=batch_gt_depth)
             graspness_loss = torch.square(batch_gt_graspness - graspness).mean()
-            self.wandb_run.log({"graspness_loss": graspness_loss})
+            #self.wandb_run.log({"graspness_loss": graspness_loss})
             loss = self.w_graspness * graspness_loss
             optimizer.zero_grad()
             loss.backward(retain_graph=False)
             optimizer.step()
 
         return cur_c2w, cur_gt_graspness
+    
+    def get_graspness_and_objectness(self, render_depth, idx):
+        if self.cfg['mapping_depth_source'] == 'gt':
+            # Get the graspness and objectness using the gt depth
+            # TODO: implement this
+            _, _, gt_depth, _, _ = self.frame_reader[idx]
+            net_graspness, objectness_mask = self.grasper.inference(gt_depth)
+        elif self.cfg['mapping_depth_source'] == 'baseline':
+            net_graspness, objectness_mask = self.grasper.inference(render_depth)
+        elif self.cfg['mapping_depth_source'] == 'rayst3r':
+            # Get the graspness and objectness using the rayst3r depth
+            # TODO: implement this
+            raise NotImplementedError("Rayst3r depth is not supported yet")
+        else:
+            raise ValueError(f"Invalid mapping depth source: {self.cfg['mapping_depth_source']}, must be one of: " + ", ".join(MAPPING_DEPTH_SOURCES))
+        return net_graspness, objectness_mask
 
-    def uncertainty_estimation(self, c2w, thresh=0.1):
+    def uncertainty_estimation(self, c2w, idx, thresh=0.1):
         all_planes = (
             self.planes_xy, self.planes_xz, self.planes_yz, self.c_planes_xy, self.c_planes_xz, self.c_planes_yz,
             self.g_planes_xy, self.g_planes_xz, self.g_planes_yz)
@@ -490,7 +509,7 @@ class Mapper(object):
             depth, graspness, _ = self.renderer.render_img_downsample(all_planes, self.decoders, c2w,
                                                                                       self.truncation, self.device,
                                                                                       downsample_rate=4)
-            net_graspness, objectness_mask = self.grasper.inference(depth)
+            net_graspness, objectness_mask = self.get_graspness_and_objectness(depth, idx)
         net_graspness = net_graspness.squeeze(0)
         objectness_mask = objectness_mask.squeeze(0)
         net_graspness_ = (net_graspness > thresh).float()
@@ -509,13 +528,20 @@ class Mapper(object):
             Returns:
                 None
         """
-
+        ckpts = os.listdir(f'{self.output}/ckpts')
+        meshes = os.listdir(f'{self.output}/mesh')
+        print(f"Checkpoint and mesh files are not saved for all frames, {len(ckpts)} checkpoints and {len(meshes)} meshes are saved. The total number of frames is {self.max_step + 1}")
+        if len(ckpts) == len(meshes) == (self.max_step + 1) and not self.force:
+            print("All checkpoints and meshes are already saved, skipping mapping")
+            return
+        else:
+            print(f"Not all checkpoints and meshes are saved, {len(ckpts)} checkpoints and {len(meshes)} meshes are saved. The total number of frames is {self.max_step + 1}")
 
         cfg = self.cfg
         all_planes = (
         self.planes_xy, self.planes_xz, self.planes_yz, self.c_planes_xy, self.c_planes_xz, self.c_planes_yz,
         self.g_planes_xy, self.g_planes_xz, self.g_planes_yz)
-        idx, gt_color, gt_depth, gt_c2w = self.frame_reader[0]
+        idx, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[0]
         data_iterator = iter(self.frame_loader)
         # skip first
         # next(data_iterator)
@@ -524,6 +550,8 @@ class Mapper(object):
         error_list = []
         init_phase = True
         prev_idx = -1
+
+        chosen_indices = []
         while True:
             while True:
                 idx = self.idx[0].clone()
@@ -542,42 +570,54 @@ class Mapper(object):
                 print("Mapping Frame ", idx.item())
                 print(Style.RESET_ALL)
             if idx == 0:
+                scene_idx = 0
                 if cfg['model']['grasp_output'] == "offline":
                     _, gt_color, gt_depth, gt_graspness, gt_c2w = self.frame_reader[0]
                     gt_graspness = gt_graspness.squeeze(0).to(self.device, non_blocking=True)
                 elif cfg['model']['grasp_output'] == "online":
-                    _, gt_color, gt_depth, gt_c2w = self.frame_reader[0]
+                    _, gt_color, gt_depth, gt_c2w, cur_gt_objectness = self.frame_reader[0]
                     gt_graspness, _ = self.grasper.inference(gt_depth)
                     gt_graspness = gt_graspness.squeeze(0)
 
                 else:
-                    _, gt_color, gt_depth, gt_c2w = self.frame_reader[0]
+                    _, gt_color, gt_depth, gt_c2w, cur_gt_objectness = self.frame_reader[0]
                     gt_graspness = None
+                
+                # This is for tracking for indices chosen by the mapping
+                chosen_indices.append(0)
             else:
                 last_c2w = self.estimate_c2w_list[prev_idx].cpu()
                 largest_uncertainty = -1000
                 render_graspness = None
                 render_depth = None
+                render_objectness_mask = None
                 sampled_poses, indexs = self.frame_reader.sample_pose_distance(last_c2w, 0.1)
                 for i, pose in enumerate(sampled_poses):
                     uncertainty, graspness, net_graspness, depth, objectness_mask = self.uncertainty_estimation(
-                        pose.to(self.device))
+                        pose.to(self.device),
+                        indexs[i]
+                    )
                     if uncertainty > largest_uncertainty:
                         largest_uncertainty = uncertainty
                         nbv_idx = indexs[i]
                         render_graspness = graspness
                         render_depth = depth
+                        render_objectness_mask = objectness_mask
 
                 self.frame_reader.mapped_frames.append(nbv_idx)
-                _, gt_color, gt_depth, gt_c2w = self.frame_reader[nbv_idx]
+                _, gt_color, gt_depth, gt_c2w, cur_gt_objectness = self.frame_reader[nbv_idx]
                 gt_graspness, _ = self.grasper.inference(gt_depth)
                 gt_graspness = gt_graspness.squeeze(0)
+                scene_idx = nbv_idx
+
+                # This is for tracking for indices chosen by the mapping
+                chosen_indices.append(nbv_idx.item())
 
             gt_color = gt_color.squeeze(0).to(self.device, non_blocking=True)
             gt_depth = gt_depth.squeeze(0).to(self.device, non_blocking=True)
 
             gt_c2w = gt_c2w.squeeze(0).to(self.device, non_blocking=True)
-
+            cur_gt_objectness = cur_gt_objectness.squeeze(0).to(self.device, non_blocking=True)
             cur_c2w = gt_c2w
 
             if not init_phase:
@@ -591,14 +631,21 @@ class Mapper(object):
             self.joint_opt = (len(self.keyframe_list) > 4) and cfg['mapping']['joint_opt']
 
             start_time = time.time()
-            cur_c2w, cur_gt_graspness = self.optimize_mapping(iters, lr_factor, idx, gt_color, gt_depth,
-                                                                       gt_c2w,
-                                                                       self.keyframe_dict, self.keyframe_list, cur_c2w,
-                                                                       cur_gt_graspness=gt_graspness)
+            cur_c2w, cur_gt_graspness = self.optimize_mapping(
+                iters, 
+                lr_factor, 
+                idx, 
+                gt_color, 
+                gt_depth,
+                gt_c2w,
+                self.keyframe_dict, self.keyframe_list, cur_c2w,
+                cur_gt_graspness=gt_graspness,
+                scene_idx=scene_idx
+            )
 
             if idx!=0:
-                self.visualizer.save_nbv_res(idx, gt_depth, gt_color, render_depth, render_graspness, cur_gt_graspness)
-            self.wandb_run.log({"mapping_time":time.time()-start_time})
+                self.visualizer.save_nbv_res(idx, gt_depth, gt_color, render_depth, render_graspness, cur_gt_graspness, render_objectness_mask, cur_gt_objectness)
+            #self.wandb_run.log({"mapping_time":time.time()-start_time})
             self.mapping_time = (time.time() - start_time)
 
             self.estimate_c2w_list[idx] = cur_c2w
@@ -650,3 +697,9 @@ class Mapper(object):
 
             if idx == self.max_step:
                 break
+        
+        results_dict = {
+            "chosen_indices": chosen_indices
+        }
+        with open(f'{self.output}/results.json', 'w') as f:
+            json.dump(results_dict, f, indent=4)

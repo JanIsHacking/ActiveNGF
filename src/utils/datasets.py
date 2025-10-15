@@ -252,8 +252,11 @@ class GraspNet(BaseDataset):
             glob.glob(f'{self.input_folder}/rgb/*.png'))
         self.depth_paths = sorted(
             glob.glob(f'{self.input_folder}/depth/*.png'))
+        self.label_paths = sorted(
+            glob.glob(f'{self.input_folder}/label/*.png'))
         self.color_paths.pop(0)
         self.depth_paths.pop(0)
+        self.label_paths.pop(0)
         # self.color_paths, self.depth_paths, self.poses = self.loadtum(
         #     self.input_folder, frame_rate=32)
         self.n_img = len(self.color_paths)
@@ -312,9 +315,11 @@ class GraspNet(BaseDataset):
     def __getitem__(self, index):
         color_path = self.color_paths[index]
         depth_path = self.depth_paths[index]
+        label_path = self.label_paths[index]
 
         color_data = cv2.imread(color_path)
         depth_data = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        label_data = cv2.imread(label_path, cv2.IMREAD_UNCHANGED)
 
         if self.distortion is not None:
             K = as_intrinsics_matrix([self.fx, self.fy, self.cx, self.cy])
@@ -325,9 +330,13 @@ class GraspNet(BaseDataset):
         color_data = color_data / 255.
         depth_data = depth_data.astype(np.float32) / self.png_depth_scale
         H, W = depth_data.shape
+
+        # label_data = label_data != 0
+
         color_data = cv2.resize(color_data, (W, H))
         color_data = torch.from_numpy(color_data)
         depth_data = torch.from_numpy(depth_data) * self.scale
+        label_data = torch.from_numpy(label_data)
         if self.crop_size is not None:
             # follow the pre-processing step in lietorch, actually is resize
             color_data = color_data.permute(2, 0, 1)
@@ -345,7 +354,7 @@ class GraspNet(BaseDataset):
 
         pose = self.poses[index]
         pose[:3, 3] *= self.scale
-        return index, color_data, depth_data, pose
+        return index, color_data, depth_data, pose, label_data
 
 
 dataset_dict = {
@@ -370,6 +379,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     cfg = config.load_config('configs/GraspNet/scene_0000.yaml', 'configs/ESLAM.yaml')
     grasp_dataset = GraspNet(cfg, args, 1)
-    _, _, _, _, cur_pose = grasp_dataset[0]
+    _, _, _, _, cur_pose, cur_label = grasp_dataset[0]
     poses, pose_index = grasp_dataset.sample_pose_distance(cur_pose, 0.1)
     print(poses, pose_index)

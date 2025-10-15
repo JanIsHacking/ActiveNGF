@@ -22,7 +22,6 @@ pointmap_colors = [
     [0, 128, 128],
     [128, 0, 128],
     [128, 128, 128],
-    
 ]
 
 def visualize_pc_with_normals(
@@ -136,7 +135,7 @@ def visualize_camera(
         rr.log(
             f"world/scene_visualization/{camera_name}/camera/image",
             rr.Pinhole(
-                resolution=[mask.shape[1], mask.shape[0]],
+                resolution=[rgb.shape[1], rgb.shape[0]],
                 focal_length=[intrinsics[0,0], intrinsics[1,1]],
                 principal_point=[intrinsics[0,2], intrinsics[1,2]],
             ),

@@ -82,7 +82,7 @@ def cull_mesh(mesh_file, cfg, args, device, estimate_c2w_list=None):
 
     whole_mask = np.ones(pc.shape[0]).astype('bool')
     for i in range(0, n_imgs, 1):
-        _, _, depth, c2w = frame_reader[i]
+        _, _, depth, c2w, _ = frame_reader[i]
         depth, c2w = depth.to(device), c2w.to(device)
 
         if not estimate_c2w_list is None:

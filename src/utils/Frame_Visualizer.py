@@ -70,67 +70,90 @@ class Frame_Visualizer(object):
         self.truncation = truncation
         os.makedirs(f'{vis_dir}', exist_ok=True)
 
-    def save_nbv_res(self, idx, gt_depth, gt_color, render_depth, render_graspness, gt_graspness):
+    def save_nbv_res(
+        self,
+        idx,
+        gt_depth,
+        gt_color,
+        render_depth,
+        render_graspness,
+        gt_graspness,
+        render_objectness_mask,
+        gt_objectness,
+    ):
         gt_depth_np = gt_depth.squeeze(0).cpu().numpy()
         gt_color_np = gt_color.squeeze(0).cpu().numpy()
 
         render_depth = (render_depth.squeeze(0))[0:720:4, 0:1280:4].view(1, 1, 180, 320)
-        render_depth = F.interpolate(render_depth, scale_factor=4, mode='bilinear').squeeze()
+        render_depth = F.interpolate(render_depth, scale_factor=4, mode="bilinear").squeeze()
         render_depth_np = render_depth.cpu().numpy()
 
         gt_graspness = (gt_graspness.squeeze(0))[0:720:4, 0:1280:4].view(1, 1, 180, 320)
-        gt_graspness = F.interpolate(gt_graspness, scale_factor=4, mode='bilinear').squeeze()
-
+        gt_graspness = F.interpolate(gt_graspness, scale_factor=4, mode="bilinear").squeeze()
         gt_graspness_np = gt_graspness.cpu().numpy()
 
-
-
-        render_graspness = render_graspness[0:720:4, 0:1280:4].view(1,1,180,320)
-        render_graspness = F.interpolate(render_graspness, scale_factor=4, mode='bilinear').squeeze()
+        render_graspness = render_graspness[0:720:4, 0:1280:4].view(1, 1, 180, 320)
+        render_graspness = F.interpolate(render_graspness, scale_factor=4, mode="bilinear").squeeze()
         render_graspness_np = render_graspness.detach().cpu().numpy()
-        render_graspness_residual = np.abs(gt_graspness_np - render_graspness_np)
-        render_graspness_residual[gt_depth_np == 0.0] = 0.0
 
+        gt_objectness = (gt_objectness.squeeze(0))[0:720:4, 0:1280:4].view(180, 320)
+        gt_objectness_np = gt_objectness.detach().cpu().numpy().astype(bool)
 
-        fig, axs = plt.subplots(2, 3)
+        render_objectness_mask = render_objectness_mask[0:720:4, 0:1280:4].view(180, 320)
+        render_objectness_mask_np = render_objectness_mask.detach().cpu().numpy().astype(bool)
+
+        # === Visualization ===
+        fig, axs = plt.subplots(2, 4, figsize=(12, 6))
         fig.tight_layout()
         max_depth = np.max(gt_depth_np)
-        axs[0, 0].imshow(gt_depth_np, cmap="plasma", vmin=0, vmax=max_depth)
-        axs[0, 0].set_title('Input Depth')
-        axs[0, 0].set_xticks([])
-        axs[0, 0].set_yticks([])
-        axs[0, 1].imshow(render_depth_np, cmap="plasma", vmin=0, vmax=max_depth)
-        axs[0, 1].set_title('Render Depth')
-        axs[0, 1].set_xticks([])
-        axs[0, 1].set_yticks([])
-        axs[0, 2].imshow(gt_color_np)
-        axs[0, 2].set_title('Input Color')
-        axs[0, 2].set_xticks([])
-        axs[0, 2].set_yticks([])
 
+        # Row 1: Ground truth (GT)
+        axs[0, 0].imshow(gt_depth_np, cmap="plasma", vmin=0, vmax=max_depth)
+        axs[0, 0].set_title("GT Depth")
+        axs[0, 0].set_xticks([]); axs[0, 0].set_yticks([])
+
+        axs[0, 1].imshow(gt_color_np)
+        axs[0, 1].set_title("GT Color")
+        axs[0, 1].set_xticks([]); axs[0, 1].set_yticks([])
 
         gt_graspness_np = np.clip(gt_graspness_np, 0, 1)
+        axs[0, 2].imshow(gt_graspness_np, cmap="plasma", vmin=0, vmax=1)
+        axs[0, 2].set_title("GT Graspness")
+        axs[0, 2].set_xticks([]); axs[0, 2].set_yticks([])
+
+        # Boolean mask: show as black & white
+        axs[0, 3].imshow(gt_objectness_np, cmap="gray", vmin=0, vmax=1)
+        axs[0, 3].set_title("GT Objectness (mask)")
+        axs[0, 3].set_xticks([]); axs[0, 3].set_yticks([])
+
+        # Row 2: Rendered
+        axs[1, 0].imshow(render_depth_np, cmap="plasma", vmin=0, vmax=max_depth)
+        axs[1, 0].set_title("Render Depth")
+        axs[1, 0].set_xticks([]); axs[1, 0].set_yticks([])
+
+        axs[1, 1].imshow(gt_color_np)
+        axs[1, 1].set_title("Render Color (Ref)")
+        axs[1, 1].set_xticks([]); axs[1, 1].set_yticks([])
+
         render_graspness_np = np.clip(render_graspness_np, 0, 1)
-        render_graspness_residual = np.clip(render_graspness_residual, 0, 1)
-        axs[1, 0].imshow(gt_graspness_np, cmap="plasma", vmin=0, vmax=1)
-        axs[1, 0].set_title('GT Net Graspness')
-        axs[1, 0].set_xticks([])
-        axs[1, 0].set_yticks([])
-        axs[1, 1].imshow(render_graspness_np, cmap="plasma", vmin=0, vmax=1)
-        axs[1, 1].set_title('Ren Graspness')
-        axs[1, 1].set_xticks([])
-        axs[1, 1].set_yticks([])
-        axs[1, 2].imshow(render_graspness_residual, cmap="plasma", vmin=0, vmax=1)
-        axs[1, 2].set_title('Graspness Residual')
-        axs[1, 2].set_xticks([])
-        axs[1, 2].set_yticks([])
+        axs[1, 2].imshow(render_graspness_np, cmap="plasma", vmin=0, vmax=1)
+        axs[1, 2].set_title("Render Graspness")
+        axs[1, 2].set_xticks([]); axs[1, 2].set_yticks([])
+
+        # Boolean mask: show as black & white
+        axs[1, 3].imshow(render_objectness_mask_np, cmap="gray", vmin=0, vmax=1)
+        axs[1, 3].set_title("Render Objectness (mask)")
+        axs[1, 3].set_xticks([]); axs[1, 3].set_yticks([])
 
         plt.subplots_adjust(wspace=0, hspace=0)
-        plt.savefig(f'{self.vis_dir}/nbv_{idx:05d}.jpg', bbox_inches='tight', pad_inches=0.2, dpi=300)
+        plt.savefig(f"{self.vis_dir}/nbv_{idx:05d}.jpg", bbox_inches="tight", pad_inches=0.2, dpi=300)
         plt.cla()
         plt.clf()
+
         if self.verbose:
-            print(f'Saved rendering visualization of nbv at {self.vis_dir}/nbv_{idx:05d}.jpg')
+            print(f"Saved rendering visualization of nbv at {self.vis_dir}/nbv_{idx:05d}.jpg")
+
+
 
     def save_imgs(self, idx, iter, gt_depth, gt_color, c2w_or_camera_tensor, all_planes, decoders, gt_graspness = None):
         """
