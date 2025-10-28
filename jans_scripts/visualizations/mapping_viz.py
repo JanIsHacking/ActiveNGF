@@ -66,10 +66,26 @@ def extract_vertex_rgb(mesh: trimesh.Trimesh) -> np.ndarray:
     return rgb
 
 
+def get_mesh_colors(mesh: trimesh.Trimesh, points: np.ndarray, face_indices: np.ndarray) -> np.ndarray:
+    vertex_rgb = extract_vertex_rgb(mesh)
+    if vertex_rgb is None:
+        raise ValueError("Vertex colors are not found")
+
+    faces_idx = mesh.faces[face_indices]
+    tri_verts = mesh.vertices[faces_idx]
+    tri_colors = vertex_rgb[faces_idx]
+
+    weights = barycentric_weights(tri_verts, points)
+    colors = (weights[:, :, None] * tri_colors).sum(axis=1)
+
+    colors = np.rint(colors).astype(np.uint8)
+
+    return colors
+
 def main() -> None:
     setup_rerun("mapping_viz")
 
-    scene_path = "output/GraspNet/scene_0100_nbv"
+    scene_path = "output/GraspNet/test/gt/scene_0100_nbv"
     meshes_dir = os.path.join(scene_path, "mesh")
     for mesh_file in os.listdir(meshes_dir):
         mesh_path = os.path.join(meshes_dir, mesh_file)
@@ -80,31 +96,9 @@ def main() -> None:
 
         points, face_indices = trimesh.sample.sample_surface(mesh, mesh_num_sample_points)
 
-        vertex_rgb = extract_vertex_rgb(mesh)
-        if vertex_rgb is None:
-            rr.log(f"world/points/{mesh_file}", rr.Points3D(points, colors=[255, 0, 0]))
-            continue
+        colors = get_mesh_colors(mesh, points, face_indices)
 
-        faces_idx = mesh.faces[face_indices]
-        tri_verts = mesh.vertices[faces_idx]
-        tri_colors = vertex_rgb[faces_idx]
-
-        weights = barycentric_weights(tri_verts, points)
-        colors = (weights[:, :, None] * tri_colors).sum(axis=1)
-
-        colors = np.rint(colors).astype(np.uint8)
-
-        # If you see swapped channels (cyan→yellow etc), set swap_rb=True
-        swap_rb = False
-        if swap_rb:
-            colors = colors[:, ::-1]
-
-        print(mesh_file)
-        print("vertex rgb stats: min", vertex_rgb.min(axis=0), "max", vertex_rgb.max(axis=0), "mean", vertex_rgb.mean(axis=0))
-        print("sampled colors mean", colors.mean(axis=0))
-
-        rr.log(f"world/points/{mesh_file}", rr.Points3D(points, colors=colors.tolist()))
-
+        rr.log(f"world/mesh/{mesh_file}", rr.Points3D(points, colors=colors.tolist()))
 
 if __name__ == "__main__":
     main()

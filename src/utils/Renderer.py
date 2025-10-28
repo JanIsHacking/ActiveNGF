@@ -40,6 +40,7 @@
     # limitations under the License.
 
 import torch
+import torch.nn.functional as F
 from src.common import get_rays, sample_pdf, normalize_3d_coordinate, get_rays_downsample
 
 class Renderer(object):
@@ -353,8 +354,79 @@ class GraspnessRender(Renderer):
         uncertainty = raw[..., 5]
 
         return depth_map, color_map, graspness, sdf, uncertainty
-
+    
     def render_batch_ray_wo_gtdepth(self, all_planes, decoders, rays_d, rays_o, device, truncation):
+        """
+        Render depth and color for a batch of rays, with detailed debug prints.
+        """
+        n_stratified = self.n_stratified * 2
+        n_importance = self.n_importance
+        near = 0.0
+        t_vals_uni = torch.linspace(0., 1., steps=n_stratified, device=device)
+        t_vals_surface = torch.linspace(0., 1., steps=n_importance, device=device)
+
+        with torch.no_grad():
+            rays_o_uni = rays_o.detach()
+            rays_d_uni = rays_d.detach()
+            det_rays_o = rays_o_uni.unsqueeze(-1)
+            det_rays_d = rays_d_uni.unsqueeze(-1)
+
+            # --- Bounding box intersection ---
+            t = (self.bound.unsqueeze(0) - det_rays_o) / det_rays_d
+            far_bb, _ = torch.min(torch.max(t, dim=2)[0], dim=1)
+            far_bb = far_bb.unsqueeze(-1)
+            far_bb += 0.01
+
+            print(f"[DEBUG] bound: {self.bound}")
+            print(f"[DEBUG] far_bb stats -> min: {far_bb.min().item():.4f}, max: {far_bb.max().item():.4f}, mean: {far_bb.mean().item():.4f}")
+
+            # --- Uniform sampling ---
+            z_vals_uni = near * (1. - t_vals_uni) + far_bb * t_vals_uni
+            pts_uni = rays_o_uni.unsqueeze(1) + rays_d_uni.unsqueeze(1) * z_vals_uni.unsqueeze(-1)
+            print(f"[DEBUG] z_vals_uni range: {z_vals_uni.min().item():.4f} to {z_vals_uni.max().item():.4f}")
+
+            # --- Evaluate SDF field ---
+            pts_uni_nor = normalize_3d_coordinate(pts_uni.clone(), self.bound)
+            sdf_uni = decoders.get_raw_sdf(pts_uni_nor, all_planes[:6])
+            print(f"[DEBUG] sdf_uni stats -> min: {sdf_uni.min().item():.4f}, max: {sdf_uni.max().item():.4f}, mean: {sdf_uni.mean().item():.4f}")
+
+            sdf_uni = sdf_uni.reshape(*pts_uni.shape[0:2])
+            min_index = torch.argmin(torch.abs(sdf_uni), dim=-1, keepdim=True)
+            pesudo_surface = torch.gather(z_vals_uni, 1, min_index)
+            print(f"[DEBUG] pesudo_surface mean: {pesudo_surface.mean().item():.4f}")
+
+            # --- Importance samples around surface ---
+            z_vals_surface = pesudo_surface - (1.5 * truncation) + (3 * truncation * t_vals_surface)
+            pesudo_free = pesudo_surface.expand(-1, n_stratified)
+            z_vals_free = near + 1.2 * pesudo_free * t_vals_uni
+            z_vals, _ = torch.sort(torch.cat([z_vals_free, z_vals_surface], dim=-1), dim=-1)
+            print(f"[DEBUG] z_vals final range: {z_vals.min().item():.4f} to {z_vals.max().item():.4f}")
+
+        # --- Evaluate field again for rendering ---
+        pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
+        raw = decoders(pts, all_planes)
+
+        print(f"[DEBUG] raw[...,3] (SDF) range: {raw[...,3].min().item():.4f} to {raw[...,3].max().item():.4f}")
+
+        alpha = self.sdf2alpha(raw[..., 3], decoders.beta)
+        print(f"[DEBUG] alpha stats -> min: {alpha.min().item():.4f}, max: {alpha.max().item():.4f}, mean: {alpha.mean().item():.4f}")
+
+        weights = alpha * torch.cumprod(
+            torch.cat([torch.ones((alpha.shape[0], 1), device=device),
+                    (1. - alpha + 1e-10)], -1), -1)[:, :-1]
+
+        rendered_rgb = torch.sum(weights[..., None] * raw[..., :3], -2)
+        rendered_depth = torch.sum(weights * z_vals, -1)
+        rendered_graspness = torch.sum(weights * raw[..., 4], -1)
+        uncertainty = torch.mean(raw[..., 5], dim=-1)
+        depth_uncertainty = torch.sum(-weights * torch.log(weights + 1e-8), dim=-1)
+
+        print(f"[DEBUG] rendered_depth stats -> min: {rendered_depth.min().item():.4f}, max: {rendered_depth.max().item():.4f}, mean: {rendered_depth.mean().item():.4f}")
+        print("----------------------------------------------------")
+
+        return rendered_depth, rendered_rgb, rendered_graspness, raw[..., 5], z_vals, uncertainty, depth_uncertainty
+
+    def render_batch_ray_wo_gtdepth2(self, all_planes, decoders, rays_d, rays_o, device, truncation):
         """
         Render depth and color for a batch of rays.
         Args:
@@ -497,6 +569,7 @@ class GraspnessRender(Renderer):
                 if gt_depth is None:
                     depth, color, graspness, _, _,uncertainty,_ = self.render_batch_ray_wo_gtdepth(all_planes, decoders, rays_d_batch, rays_o_batch,
                                                 device, truncation)
+
                 else:
                     gt_depth_batch = gt_depth[i:i+ray_batch_size]
                     depth, color, graspness, _, _,uncertainty = self.render_batch_ray(all_planes, decoders, rays_d_batch, rays_o_batch,
@@ -554,8 +627,12 @@ class GraspnessRender(Renderer):
                 rays_d_batch = rays_d[i:i + ray_batch_size]
                 rays_o_batch = rays_o[i:i + ray_batch_size]
                 if gt_depth is None:
-                    depth, color, graspness, _, _, uncertainty, depth_uncertainty = self.render_batch_ray_wo_gtdepth(all_planes, decoders, rays_d_batch, rays_o_batch,
+                    depth, color, graspness, _, _, uncertainty, depth_uncertainty = self.render_batch_ray_wo_gtdepth2(all_planes, decoders, rays_d_batch, rays_o_batch,
                                                            device, truncation)
+                    # print(f"[DEBUG] depth shape: {depth.shape}")
+                    # print(f"[DEBUG] depth mean: {depth.mean().item():.4f}")
+                    # print(f"[DEBUG] depth min: {depth.min().item():.4f}")
+                    # print(f"[DEBUG] depth max: {depth.max().item():.4f}")
                 else:
                     gt_depth_batch = gt_depth[i:i + ray_batch_size]
                     depth, color, graspness, _, _, uncertainty = self.render_batch_ray(all_planes, decoders, rays_d_batch, rays_o_batch,
@@ -569,11 +646,20 @@ class GraspnessRender(Renderer):
                 depth_uncertainty_list.append(depth_uncertainty)
 
             depth_sample = torch.cat(depth_list, dim=0)
+
+            # print(f"[DEBUG] depth_sample shape: {depth_sample.shape}")
+            # print(f"[DEBUG] depth_sample mean: {depth_sample.mean().item():.4f}")
+            # print(f"[DEBUG] depth_sample min: {depth_sample.min().item():.4f}")
+            # print(f"[DEBUG] depth_sample max: {depth_sample.max().item():.4f}")
+
             color_sample = torch.cat(color_list, dim=0)
             graspness_sample = torch.cat(graspness_list, dim=0)
             uncertainty_sample = torch.cat(uncertainty_list, dim=0)
             depth_uncertainty_sample = torch.cat(depth_uncertainty_list, dim=0)
 
+            Hd = int(H // downsample_rate)
+            Wd = int(W // downsample_rate)
+            assert Hd * Wd == depth_sample.shape[0], f"Sample count mismatch: {Hd * Wd} != {depth_sample.shape[0]}"
 
             # i, j = torch.meshgrid(torch.linspace(0, W - 1, int(W / downsample_rate)), torch.linspace(0, H - 1, int(H / downsample_rate)))
             # print(i.shape, j.shape)
@@ -585,11 +671,35 @@ class GraspnessRender(Renderer):
             depth_uncertainty = torch.zeros(H, W).cuda()
             # depth[index] = depth_sample
             # graspness[index] = graspness_sample
-            depth[0:H:downsample_rate, 0:W:downsample_rate] = depth_sample.reshape(int(H / downsample_rate), int(W / downsample_rate))
-            graspness[0:H:downsample_rate, 0:W:downsample_rate] = graspness_sample.reshape(int(H / downsample_rate),
-                                                                                   int(W / downsample_rate))
-            uncertainty[0:H:downsample_rate, 0:W:downsample_rate] = uncertainty_sample.reshape(int(H / downsample_rate),
-                                                                                          int(W / downsample_rate))
-            depth_uncertainty[0:H:downsample_rate, 0:W:downsample_rate] = depth_uncertainty_sample.reshape(int(H / downsample_rate),
-                                                                                               int(W / downsample_rate))
-            return depth, graspness, depth_uncertainty
+
+            depth_downsampled = depth_sample.reshape(1, 1, Hd, Wd).float().to(device)
+            grasp_down = graspness_sample.reshape(1, 1, Hd, Wd).float().to(device)
+            uncertainty_down = uncertainty_sample.reshape(1, 1, Hd, Wd).float().to(device)
+            depth_uncertainty_down = depth_uncertainty_sample.reshape(1, 1, Hd, Wd).float().to(device)
+
+            valid_mask_down = torch.ones(1, 1, Hd, Wd, dtype=torch.bool, device=device)
+
+            # Upsample depth, graspness, uncertainty and mask
+            depth_full = F.interpolate(depth_downsampled, size=(H, W), mode='bilinear', align_corners=False).squeeze(0).squeeze(0)
+            grasp_full = F.interpolate(grasp_down, size=(H, W), mode='bilinear', align_corners=False).squeeze(0).squeeze(0)
+            uncertainty_full = F.interpolate(uncertainty_down, size=(H, W), mode='bilinear', align_corners=False).squeeze(0).squeeze(0)
+            depth_uncertainty_full = F.interpolate(depth_uncertainty_down, size=(H, W), mode='bilinear', align_corners=False).squeeze(0).squeeze(0)
+            valid_mask_full = F.interpolate(valid_mask_down.float(), size=(H, W), mode='nearest').squeeze(0).squeeze(0).bool()
+
+            # Convert to numpy arrays for visualization
+            # depth_np = depth_full.cpu().numpy().squeeze()
+            
+            # depth[0:H:downsample_rate, 0:W:downsample_rate] = depth_sample.reshape(int(H / downsample_rate), int(W / downsample_rate))
+            # graspness[0:H:downsample_rate, 0:W:downsample_rate] = graspness_sample.reshape(int(H / downsample_rate),
+            #                                                                        int(W / downsample_rate))
+            # uncertainty[0:H:downsample_rate, 0:W:downsample_rate] = uncertainty_sample.reshape(int(H / downsample_rate),
+            #                                                                               int(W / downsample_rate))
+            # depth_uncertainty[0:H:downsample_rate, 0:W:downsample_rate] = depth_uncertainty_sample.reshape(int(H / downsample_rate),
+            #                                                                                    int(W / downsample_rate))
+                                                                                               
+            # print(f"[DEBUG] depth shape: {depth_full.shape}")
+            # print(f"[DEBUG] depth mean: {depth_full.mean().item():.4f}")
+            # print(f"[DEBUG] depth min: {depth_full.min().item():.4f}")
+            # print(f"[DEBUG] depth max: {depth_full.max().item():.4f}")
+
+            return depth_full, grasp_full, depth_uncertainty_full, valid_mask_full

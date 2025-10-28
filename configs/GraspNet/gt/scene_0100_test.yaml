@@ -3,7 +3,7 @@ inherit_from: configs/GraspNet/graspnet.yaml
 config_path: configs/GraspNet/scene_0100_test.yaml
 data:
   input_folder: /data/graspnet/scenes/scene_0100/realsense
-  output: output/GraspNet/test/baseline/scene_0100_nbv/
+  output: output/GraspNet/test/gt/scene_0100_nbv/
 mapping:
   keyframe_every: 1
   mesh_freq: 1

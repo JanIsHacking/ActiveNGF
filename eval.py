@@ -4,6 +4,7 @@ import numpy as np
 import trimesh
 import torch
 import json
+import random
 
 from graspnetAPI import GraspNet, GraspGroup
 
@@ -17,11 +18,18 @@ from jans_scripts.geometry import furthest_point_sampling
 torch.set_num_threads(8)       # for intra-op parallelism
 torch.set_num_interop_threads(8)  # for inter-op parallelism
 
+seed = 42
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+#torch.use_deterministic_algorithms(True)
+
 mesh_num_sample_points = 1024
-fps_num_sample_points = 2048
-graspness_threshold = 0.5
 camera = 'realsense'
-dump_folder = ''
 
 
 def mesh_to_pointcloud(mesh_file: str, num_points: int = 20000) -> np.ndarray:
@@ -110,7 +118,8 @@ def evaluate(mesh_file: str, scene_id: int, mapper, gne: GraspNetEvalComplete, f
     grasp_group.save_npy(dump_file)
 
     # Run GraspNet evaluation
-    scene_accuracy = gne.eval_scene_objects(scene_id, dump_dir, dataset_root, camera, grasps_per_object=5)
+    grasps_per_object = 5
+    scene_accuracy = gne.eval_scene_objects(scene_id, dump_dir, dataset_root, camera, grasps_per_object=grasps_per_object)
 
     results = {
         "scene_accuracy": scene_accuracy[0].tolist(),
@@ -129,7 +138,6 @@ def main(scene_dir: str, dataset_root: str, scene_id: int, mapper, graspnet_chec
     )
 
     # Iterate over mesh files
-    results = {}
     mesh_dir = os.path.join(scene_dir, "mesh")
     for mesh_file in sorted(glob.glob(os.path.join(mesh_dir, "*.ply"))):
         print("Evaluating mesh file: ", mesh_file)

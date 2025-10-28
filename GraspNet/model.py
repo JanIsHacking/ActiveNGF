@@ -1,23 +1,32 @@
 import copy
 import os
-import sys
-import numpy as np
-import torch
 import pickle
-import torch.nn as nn
-import torch.nn.functional as F
-import MinkowskiEngine as ME
-from MinkUnet import MinkUNet18,MinkUNet50, MinkUNet34_openshape, MinkUNetAdaptor, MinkResNet34
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(BASE_DIR, 'pointnet2'))
-import pytorch_utils as pt_utils
+
+import MinkowskiEngine as ME
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from GraspNet.utils import batch_viewpoint_params_to_matrix, generate_grasp_views
+from MinkUnet import (
+    MinkResNet34,
+    MinkUNet18,
+    MinkUNet34_openshape,
+    MinkUNet50,
+    MinkUNetAdaptor,
+)
+from jans_scripts.geometry import point_in_bounding_box
 from pointnet2_utils import furthest_point_sample
 from pointnet2_utils import CylinderQueryAndGroup
-from GraspNet.utils import batch_viewpoint_params_to_matrix,generate_grasp_views
-from jans_scripts.geometry import point_in_bounding_box
+import pytorch_utils as pt_utils
+
 
 device = torch.device('cuda:0')
 
@@ -847,6 +856,7 @@ def pred_decode(end_points):
         ## load predictions
         grasp_score = end_points['grasp_score_pred'][i].float()
         grasp_center = end_points['fp2_xyz'][i].float()
+        print("grasp_center.shape", grasp_center.shape)
         approaching = -end_points['grasp_top_view_xyz'][i].float()
         grasp_angle_class_score = end_points['grasp_angle_cls_pred'][i]
         grasp_width = 1.2 * end_points['grasp_width_pred'][i]
@@ -897,6 +907,7 @@ def pred_decode_reg(end_points):
         ## load predictions
         grasp_score = end_points['grasp_score_pred'][i].float()
         grasp_center = end_points['fp2_xyz'][i].float()
+        print("grasp_center.shape", grasp_center.shape)
         approaching = -end_points['grasp_top_view_xyz'][i].float()
         # approaching = -end_points['approach_refined'][i].float()
         grasp_angle = end_points['grasp_angle_value_pred'][i]

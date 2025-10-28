@@ -18,7 +18,7 @@ torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-torch.use_deterministic_algorithms(True)
+#torch.use_deterministic_algorithms(True)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -33,6 +33,8 @@ def main():
     args = parser.parse_args()
 
     mapping_depth_source = args.config.split("/")[-2]
+    if mapping_depth_source.endswith('_random_nbv'):
+        mapping_depth_source = mapping_depth_source.replace('_random_nbv', '')
 
     if mapping_depth_source not in MAPPING_DEPTH_SOURCES:
         raise ValueError(f"Invalid mapping depth source: {mapping_depth_source}, must be one of: " + ", ".join(MAPPING_DEPTH_SOURCES))

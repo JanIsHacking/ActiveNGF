@@ -247,7 +247,7 @@ class GraspNetEvalComplete(GraspNetEval):
         
         # grasp_group = GraspGroup(gg_array)
         # gg_array = grasp_group.grasp_group_array
-        model_ids = list(range(50))
+        model_ids = list(range(len(grasp_group.grasp_group_array)))
 
         ####################
 

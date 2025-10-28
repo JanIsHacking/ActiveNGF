@@ -242,10 +242,12 @@ def generate_grasps_for_scene(
     gg = GraspGroup(preds)
 
     # Collision detection
+    print("gg shape: ", gg.grasp_group_array.shape)
     cloud, _ = dataset.get_data(0, return_raw_cloud=True)
     mfcdetector = ModelFreeCollisionDetector(cloud, voxel_size=voxel_size)
     collision_mask = mfcdetector.detect(gg, approach_dist=0.05, collision_thresh=collision_thresh)
     gg = gg[~collision_mask]
+    print("gg shape after collision detection: ", gg.grasp_group_array.shape)
 
     return gg
 

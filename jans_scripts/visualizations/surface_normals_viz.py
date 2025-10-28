@@ -16,7 +16,7 @@ def main():
         mesh = trimesh.util.concatenate(scene_meshes)
     points, face_indices = trimesh.sample.sample_surface(mesh, mesh_num_sample_points)
     face_normals = mesh.face_normals[face_indices]
-    visualize_pc_with_normals(torch.from_numpy(points), torch.from_numpy(face_normals), suffix="base", normal_length=0.01)
+    visualize_pc_with_normals(torch.from_numpy(points), torch.from_numpy(face_normals), suffix="base", normal_length=0.001)
 
 
 if __name__ == "__main__":

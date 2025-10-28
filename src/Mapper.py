@@ -4,11 +4,13 @@ from torch.utils.data import DataLoader
 import open3d as o3d
 import datetime
 import json
+import random
 
 import os
 import time
 import numpy as np
 from colorama import Fore, Style
+
 
 from src.common import (get_samples, random_select, matrix_to_cam_pose, cam_pose_to_matrix)
 from src.utils.datasets import get_dataset, SeqSampler
@@ -488,9 +490,11 @@ class Mapper(object):
     def get_graspness_and_objectness(self, render_depth, idx):
         if self.cfg['mapping_depth_source'] == 'gt':
             # Get the graspness and objectness using the gt depth
-            # TODO: implement this
             _, _, gt_depth, _, _ = self.frame_reader[idx]
             net_graspness, objectness_mask = self.grasper.inference(gt_depth)
+            # save the gt depth and render depth for debugging purposes
+            # torch.save(gt_depth, f'{self.output}/gt_depth_{idx}.pt')
+            # torch.save(render_depth, f'{self.output}/render_depth_{idx}.pt')
         elif self.cfg['mapping_depth_source'] == 'baseline':
             net_graspness, objectness_mask = self.grasper.inference(render_depth)
         elif self.cfg['mapping_depth_source'] == 'rayst3r':
@@ -506,9 +510,10 @@ class Mapper(object):
             self.planes_xy, self.planes_xz, self.planes_yz, self.c_planes_xy, self.c_planes_xz, self.c_planes_yz,
             self.g_planes_xy, self.g_planes_xz, self.g_planes_yz)
         with torch.no_grad():
-            depth, graspness, _ = self.renderer.render_img_downsample(all_planes, self.decoders, c2w,
+            depth, graspness, _, _ = self.renderer.render_img_downsample(all_planes, self.decoders, c2w,
                                                                                       self.truncation, self.device,
                                                                                       downsample_rate=4)
+            # print(f"render depth: idx: {idx}, sum: {depth.sum()}, mean: {depth.mean()}, min: {depth.min()}, max: {depth.max()}")
             net_graspness, objectness_mask = self.get_graspness_and_objectness(depth, idx)
         net_graspness = net_graspness.squeeze(0)
         objectness_mask = objectness_mask.squeeze(0)
@@ -530,8 +535,9 @@ class Mapper(object):
         """
         ckpts = os.listdir(f'{self.output}/ckpts')
         meshes = os.listdir(f'{self.output}/mesh')
+        results_file_path = f'{self.output}/results.json'
         print(f"Checkpoint and mesh files are not saved for all frames, {len(ckpts)} checkpoints and {len(meshes)} meshes are saved. The total number of frames is {self.max_step + 1}")
-        if len(ckpts) == len(meshes) == (self.max_step + 1) and not self.force:
+        if len(ckpts) == len(meshes) == (self.max_step + 1) and not self.force and os.path.exists(results_file_path):
             print("All checkpoints and meshes are already saved, skipping mapping")
             return
         else:
@@ -587,22 +593,35 @@ class Mapper(object):
                 chosen_indices.append(0)
             else:
                 last_c2w = self.estimate_c2w_list[prev_idx].cpu()
-                largest_uncertainty = -1000
                 render_graspness = None
                 render_depth = None
                 render_objectness_mask = None
                 sampled_poses, indexs = self.frame_reader.sample_pose_distance(last_c2w, 0.1)
-                for i, pose in enumerate(sampled_poses):
-                    uncertainty, graspness, net_graspness, depth, objectness_mask = self.uncertainty_estimation(
-                        pose.to(self.device),
-                        indexs[i]
+                if self.cfg['mapping']['random_nbv']:
+                    sampled_pose_index = random.sample(range(len(sampled_poses)), 1)[0]
+                    sampled_pose = sampled_poses[sampled_pose_index]
+                    print(f"Sampled pose: {sampled_pose}")
+                    print(f"Indexs: {indexs}")
+                    print(f"Sampled pose index: {sampled_pose_index}")
+                    print(f"Nbv idx: {indexs[sampled_pose_index]}")
+                    nbv_idx = indexs[sampled_pose_index]
+                    _, render_graspness, _, render_depth, render_objectness_mask = self.uncertainty_estimation(
+                        sampled_pose.to(self.device),
+                        nbv_idx
                     )
-                    if uncertainty > largest_uncertainty:
-                        largest_uncertainty = uncertainty
-                        nbv_idx = indexs[i]
-                        render_graspness = graspness
-                        render_depth = depth
-                        render_objectness_mask = objectness_mask
+                else:
+                    largest_uncertainty = -1000
+                    for i, pose in enumerate(sampled_poses):
+                        uncertainty, graspness, net_graspness, depth, objectness_mask = self.uncertainty_estimation(
+                            pose.to(self.device),
+                            indexs[i]
+                        )
+                        if uncertainty > largest_uncertainty:
+                            largest_uncertainty = uncertainty
+                            nbv_idx = indexs[i]
+                            render_graspness = graspness
+                            render_depth = depth
+                            render_objectness_mask = objectness_mask
 
                 self.frame_reader.mapped_frames.append(nbv_idx)
                 _, gt_color, gt_depth, gt_c2w, cur_gt_objectness = self.frame_reader[nbv_idx]
@@ -692,7 +711,7 @@ class Mapper(object):
                 self.mesher.get_mesh(mesh_out_file, all_planes, self.decoders, self.keyframe_dict, self.device,
                                      color=False, graspness=True)
                 cull_mesh(mesh_out_file, self.cfg, self.args, self.device, estimate_c2w_list=self.estimate_c2w_list)
-                os.remove(mesh_out_file)
+                #os.remove(mesh_out_file)
                 break
 
             if idx == self.max_step:
@@ -701,5 +720,5 @@ class Mapper(object):
         results_dict = {
             "chosen_indices": chosen_indices
         }
-        with open(f'{self.output}/results.json', 'w') as f:
+        with open(results_file_path, 'w') as f:
             json.dump(results_dict, f, indent=4)

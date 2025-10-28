@@ -18,7 +18,7 @@ def main():
     views = [
         "0200",
         "0206",
-        "0213",
+        "0212",
     ]
     gt_points = get_scene_gt_points(scene_id, camera, views[0])
 
@@ -38,7 +38,7 @@ def main():
         cam0_wrt_table_path = f"{graspnet_data_path}/scenes/{scene_id}/{camera}/cam0_wrt_table.npy"
         cam0_wrt_table = torch.from_numpy(np.load(cam0_wrt_table_path)).float()
         cam2world = torch.from_numpy(np.load(cam2world_path)).float()[int(view)]
-        cam2world = torch.linalg.inv(cam2world) @ cam0_wrt_table
+        cam2world = cam0_wrt_table @ cam2world
         #cam2world = cam0_wrt_table
         visualize_camera(
             rgb=rgb,

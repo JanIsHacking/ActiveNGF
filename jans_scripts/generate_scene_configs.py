@@ -9,7 +9,7 @@ def generate_scene_yaml(scene_numbers: List[int], config_path: str) -> List[str]
         "config_path": "configs/GraspNet/scene_0100.yaml",
         "data": {
             "input_folder": "/data/graspnet/scenes/scene_0100/realsense",
-            "output": "output/GraspNet/scene_0100_nbv/"
+            "output": "/data/graspnet/output/GraspNet/scene_0100_nbv/"
         },
         "mapping": {
             "keyframe_every": 1,
@@ -19,7 +19,8 @@ def generate_scene_yaml(scene_numbers: List[int], config_path: str) -> List[str]
             "iters_first": 150,
             "iters": 50,
             "ckpt_freq": 1,
-            "no_log_on_first_frame": False
+            "no_log_on_first_frame": False,
+            "random_nbv": False
         },
         "rendering": {
             "n_stratified": 32,
@@ -32,16 +33,19 @@ def generate_scene_yaml(scene_numbers: List[int], config_path: str) -> List[str]
 
     depth_source_yamls = dict()
     for depth_source in ["baseline", "rayst3r", "gt"]:
-        yamls = []
-        for num in scene_numbers:
-            scene_id = f"scene_{num:04d}"
-            yaml_copy = base_yaml.copy()
-            yaml_copy["scene"] = scene_id
-            yaml_copy["config_path"] = f"configs/GraspNet/{depth_source}/{scene_id}.yaml"
-            yaml_copy["data"]["input_folder"] = f"/data/graspnet/scenes/{scene_id}/realsense"
-            yaml_copy["data"]["output"] = f"output/GraspNet/{depth_source}/{scene_id}_nbv/"
-            yamls.append(yaml.dump(yaml_copy, sort_keys=False))
-        depth_source_yamls[depth_source] = yamls
+        for random_nbv in [True, False]:
+            yamls = []
+            depth_source_str = depth_source + '_random_nbv' if random_nbv else depth_source
+            for num in scene_numbers:
+                scene_id = f"scene_{num:04d}"
+                yaml_copy = base_yaml.copy()
+                yaml_copy["scene"] = scene_id
+                yaml_copy["config_path"] = f"configs/GraspNet/{depth_source_str}/{scene_id}.yaml"
+                yaml_copy["data"]["input_folder"] = f"/data/graspnet/scenes/{scene_id}/realsense"
+                yaml_copy["data"]["output"] = f"/data/graspnet/output/GraspNet/{depth_source_str}/{scene_id}_nbv/"
+                yaml_copy["mapping"]["random_nbv"] = random_nbv
+                yamls.append(yaml.dump(yaml_copy, sort_keys=False))
+            depth_source_yamls[depth_source_str] = yamls
     
     return depth_source_yamls
 
@@ -51,5 +55,8 @@ scene_ids = list(range(100, 190))
 depth_source_yamls = generate_scene_yaml(scene_ids, config_path)
 for depth_source, yamls in depth_source_yamls.items():
     for y, scene_id in zip(yamls, scene_ids):
-        with open(os.path.join(config_path, f"{depth_source}/scene_{scene_id:04d}.yaml"), "w") as f:
+        yaml_path = os.path.join(config_path, f"{depth_source}/scene_{scene_id:04d}.yaml")
+        yaml_dir = os.path.dirname(yaml_path)
+        os.makedirs(yaml_dir, exist_ok=True)
+        with open(yaml_path, "w") as f:
             f.write(y)
