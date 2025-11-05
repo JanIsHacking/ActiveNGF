@@ -76,11 +76,11 @@ def synthesize_grasps(points: np.ndarray, mapper) -> GraspGroup:
     return gg
 
 
-def evaluate(predictions_file: str, scene_id: int, gne: GraspNetEvalComplete, frame_idx: int, scene_dir: str, graspnet_checkpoint: str, dataset_root: str, force: bool):
+def evaluate(mesh_file: str, scene_id: int, gne: GraspNetEvalComplete, scene_dir: str, graspnet_checkpoint: str, dataset_root: str, force: bool):
     """
     Evaluate a single mesh reconstruction against GraspNet annotations.
     """
-    eval_out_dir = os.path.join(scene_dir, "eval_out")
+    eval_out_dir = os.path.join(scene_dir, "eval_out_with_table_and_graspness_corrected_ap")
     results_file_path = os.path.join(eval_out_dir, f"results.json")
     if os.path.exists(results_file_path) and not force:
         print(f"Results file already exists: {results_file_path}")
@@ -90,7 +90,7 @@ def evaluate(predictions_file: str, scene_id: int, gne: GraspNetEvalComplete, fr
     scene_id_str = f"scene_{scene_id:04d}"
 
     # Synthesize grasps on the candidate points
-    dump_dir = os.path.join(scene_dir, "grasps", f"{frame_idx:05d}")
+    dump_dir = os.path.join(scene_dir, "grasps")
     dump_file = os.path.join(dump_dir, scene_id_str, camera, 'result.npy')
     os.makedirs(os.path.dirname(dump_file), exist_ok=True)
     print("Generating grasps for scene: ", scene_id_str)
@@ -115,7 +115,7 @@ def evaluate(predictions_file: str, scene_id: int, gne: GraspNetEvalComplete, fr
         json.dump(results, f, indent=4)
 
 
-def main(data_dir: str, scene_dir: str, dataset_root: str, scene_id: int, graspnet_checkpoint: str, force: bool):
+def main(scene_dir: str, dataset_root: str, scene_id: int, graspnet_checkpoint: str, force: bool):
     # Initialize GraspNet evaluation 
     gne = GraspNetEvalComplete(
         root=dataset_root,
@@ -124,12 +124,8 @@ def main(data_dir: str, scene_dir: str, dataset_root: str, scene_id: int, graspn
     )
 
     # Iterate over mesh files
-    mesh_dir = os.path.join(scene_dir, "mesh")
-    for mesh_file in sorted(glob.glob(os.path.join(mesh_dir, "*.ply"))):
-        print("Evaluating mesh file: ", mesh_file)
-        frame_idx = int(os.path.basename(mesh_file).split("_")[0])
-
-        evaluate(mesh_file, scene_id, gne, frame_idx, scene_dir, graspnet_checkpoint, dataset_root, force)
+    mesh_file = os.path.join(scene_dir, "mesh", "mesh.ply")
+    evaluate(mesh_file, scene_id, gne, scene_dir, graspnet_checkpoint, dataset_root, force)
 
 
 if __name__ == "__main__":
@@ -137,7 +133,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Eval arguments
-    parser.add_argument("--data_dir", type=str, required=True, help="Directory of data")
+    parser.add_argument("--predictions_dir", type=str, required=True, help="Directory of data")
     parser.add_argument("--dataset_root", type=str, required=True, help="Root path of GraspNet dataset")
     parser.add_argument("--scene_id", type=int, required=True, help="Scene id to evaluate")
     parser.add_argument("--force", action="store_true", help="Force evaluation even if results file already exists")
@@ -148,6 +144,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     scene_id_str = f"scene_{args.scene_id:04d}"
-    scene_dir = os.path.join(args.data_dir, f"{camera}_{scene_id_str}_0000")
+    scene_dir = os.path.join(args.predictions_dir, f"{camera}_{scene_id_str}_0000")
 
-    main(args.data_dir, scene_dir, args.dataset_root, args.scene_id, args.graspnet_checkpoint, args.force)
+    main(scene_dir, args.dataset_root, args.scene_id, args.graspnet_checkpoint, args.force)

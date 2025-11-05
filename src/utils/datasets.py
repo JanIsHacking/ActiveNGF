@@ -305,7 +305,7 @@ class GraspNet(BaseDataset):
         sampled_pose_list = []
         pose_index_list = []
         for idx in pose_index:
-            if (idx in self.mapped_frames):
+            if (idx in self.mapped_frames or idx == 0):
                 continue
             pose_index_list.append(idx)
             sampled_pose_list.append(poses[idx])

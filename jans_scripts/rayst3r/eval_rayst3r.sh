@@ -19,8 +19,8 @@ if [ "$scene_id" -lt 100 ] || [ "$scene_id" -gt 189 ]; then
 fi
 
 scene_id_str=$(printf "%04d" $scene_id)
-python eval_rayst3r.py \
-    --data_dir /data/graspnet/rayst3r_data \
+python jans_scripts/rayst3r/eval_rayst3r.py \
+    --predictions_dir /data/graspnet/output/GraspNet/rayst3r_zero_shot \
     --dataset_root /data/graspnet \
     --scene_id ${scene_id_str} \
     --graspnet_checkpoint /workspace/ckpts2/checkpoint.tar \

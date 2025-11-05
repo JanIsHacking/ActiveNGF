@@ -2,11 +2,12 @@ import os
 import numpy as np
 import rerun as rr
 from jans_scripts.visualize import setup_rerun
-from jans_scripts.graspnet_viz import visualize_graspnet_scene
+from jans_scripts.visualizations.graspnet_viz import visualize_graspnet_scene
 import matplotlib.pyplot as plt
+from jans_scripts.graspnet_storage import get_graspnet_data_path
 
 gripper_width = 0.08
-scene_id = "scene_0100"
+scene_id = "scene_0112"
 camera = "realsense"
 
 
@@ -67,11 +68,11 @@ def visualize_grasp_array(grasp_array: np.ndarray, mapping_idx: str = f"{0:05d}"
 def grasp_rerun_viz() -> None:
     setup_rerun("grasp_rerun_viz")
 
-    grasps_path = f"output/GraspNet/test/gt_random_nbv/{scene_id}_nbv/grasps"
-    for mapping_idx in os.listdir(grasps_path):
-        grasp_file = os.path.join(grasps_path, mapping_idx, scene_id, camera, "result.npy")
-        grasp_array = np.load(grasp_file)
-        visualize_grasp_array(grasp_array, mapping_idx)
+    graspnet_data_path = get_graspnet_data_path()
+    grasps_path = f"{graspnet_data_path}/output/GraspNet/rayst3r_zero_shot/realsense_{scene_id}_0000/grasps"
+    grasp_file = os.path.join(grasps_path, scene_id, camera, "result.npy")
+    grasp_array = np.load(grasp_file)
+    visualize_grasp_array(grasp_array, "00000")
     
     visualize_graspnet_scene(scene_id, camera)
 

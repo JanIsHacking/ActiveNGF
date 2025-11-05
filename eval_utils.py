@@ -291,15 +291,21 @@ class GraspNetEvalComplete(GraspNetEval):
         grasp_list, score_list, collision_mask_list = grasp_list[indices], score_list[indices], collision_mask_list[
             indices]
 
+        # grasp_accuracy = np.zeros((grasps_per_object*len(model_ids), len(list_coe_of_friction)))
+        # for fric_idx, fric in enumerate(list_coe_of_friction):
+        #     for k in range(0, grasps_per_object*len(model_ids)):
+        #         if k + 1 > len(score_list):
+        #             grasp_accuracy[k, fric_idx] = np.sum(((score_list <= fric) & (score_list > 0)).astype(int)) / (
+        #                     k + 1)
+        #         else:
+        #             grasp_accuracy[k, fric_idx] = np.sum(
+        #                 ((score_list[0:k + 1] <= fric) & (score_list[0:k + 1] > 0)).astype(int)) / (k + 1)
+
         grasp_accuracy = np.zeros((grasps_per_object*len(model_ids), len(list_coe_of_friction)))
         for fric_idx, fric in enumerate(list_coe_of_friction):
-            for k in range(0, grasps_per_object*len(model_ids)):
-                if k + 1 > len(score_list):
-                    grasp_accuracy[k, fric_idx] = np.sum(((score_list <= fric) & (score_list > 0)).astype(int)) / (
-                            k + 1)
-                else:
-                    grasp_accuracy[k, fric_idx] = np.sum(
-                        ((score_list[0:k + 1] <= fric) & (score_list[0:k + 1] > 0)).astype(int)) / (k + 1)
+            for k in range(0, len(score_list)):
+                grasp_accuracy[k, fric_idx] = np.sum(((score_list <= fric) & (score_list > 0)).astype(int)) / (
+                        k + 1)
 
         # print('\rMean Accuracy for scene:%04d = %.3f' % (
         #     scene_id, 100.0 * np.mean(grasp_accuracy[:, :])), end='', flush=True)

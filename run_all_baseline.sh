@@ -2,7 +2,7 @@
 
 mapping_depth_source="baseline"
 random_nbv=true
-force=false
+force=true
 force_flag=""
 if [ "$force" = true ]; then
     force_flag="--force"

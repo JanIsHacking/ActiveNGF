@@ -4,8 +4,8 @@ export CUDA_VISIBLE_DEVICES=0
 
 max_jobs=4
 mapping_depth_source="baseline"
-random_nbv=false
-force=true
+random_nbv=true
+force=false
 
 random_nbv_str=""
 if [ "$random_nbv" = true ]; then
@@ -30,6 +30,7 @@ for scene_id_str in $(seq -f "%04g" 100 189); do
             --scene_id ${scene_id_str} \
             --config configs/GraspNet/${mapping_depth_source_str}/scene_${scene_id_str}.yaml \
             --graspnet_checkpoint ${checkpoint_path} \
+            --eval_out_dir_name "eval_out_corrected_ap" \
             ${force_flag} &
     fi
 

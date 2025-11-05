@@ -445,7 +445,7 @@ class Mapper(object):
 
         render_depth, _, _ = self.renderer.render_img(all_planes, self.decoders, cur_c2w, self.truncation,
                                                       self.device, gt_depth=cur_gt_depth)
-        cur_gt_graspness, objectness_mask = self.get_graspness_and_objectness(render_depth, scene_idx)
+        cur_gt_graspness, objectness_mask = self.get_graspness_and_objectness(render_depth, scene_idx, use_mapping_source=False)
         cur_gt_graspness = cur_gt_graspness.squeeze(0)
         gt_graspness_list.pop(-1)
         gt_graspness_list.append(cur_gt_graspness)
@@ -487,22 +487,14 @@ class Mapper(object):
 
         return cur_c2w, cur_gt_graspness
     
-    def get_graspness_and_objectness(self, render_depth, idx):
-        if self.cfg['mapping_depth_source'] == 'gt':
-            # Get the graspness and objectness using the gt depth
+    def get_graspness_and_objectness(self, render_depth, idx, use_mapping_source=False):
+        if use_mapping_source and self.cfg['mapping_depth_source'] == 'gt':
             _, _, gt_depth, _, _ = self.frame_reader[idx]
             net_graspness, objectness_mask = self.grasper.inference(gt_depth)
-            # save the gt depth and render depth for debugging purposes
-            # torch.save(gt_depth, f'{self.output}/gt_depth_{idx}.pt')
-            # torch.save(render_depth, f'{self.output}/render_depth_{idx}.pt')
-        elif self.cfg['mapping_depth_source'] == 'baseline':
-            net_graspness, objectness_mask = self.grasper.inference(render_depth)
-        elif self.cfg['mapping_depth_source'] == 'rayst3r':
-            # Get the graspness and objectness using the rayst3r depth
-            # TODO: implement this
+        elif use_mapping_source and self.cfg['mapping_depth_source'] == 'rayst3r':
             raise NotImplementedError("Rayst3r depth is not supported yet")
         else:
-            raise ValueError(f"Invalid mapping depth source: {self.cfg['mapping_depth_source']}, must be one of: " + ", ".join(MAPPING_DEPTH_SOURCES))
+            net_graspness, objectness_mask = self.grasper.inference(render_depth)
         return net_graspness, objectness_mask
 
     def uncertainty_estimation(self, c2w, idx, thresh=0.1):
@@ -514,7 +506,7 @@ class Mapper(object):
                                                                                       self.truncation, self.device,
                                                                                       downsample_rate=4)
             # print(f"render depth: idx: {idx}, sum: {depth.sum()}, mean: {depth.mean()}, min: {depth.min()}, max: {depth.max()}")
-            net_graspness, objectness_mask = self.get_graspness_and_objectness(depth, idx)
+            net_graspness, objectness_mask = self.get_graspness_and_objectness(depth, idx, use_mapping_source=True)
         net_graspness = net_graspness.squeeze(0)
         objectness_mask = objectness_mask.squeeze(0)
         net_graspness_ = (net_graspness > thresh).float()
@@ -548,6 +540,8 @@ class Mapper(object):
         self.planes_xy, self.planes_xz, self.planes_yz, self.c_planes_xy, self.c_planes_xz, self.c_planes_yz,
         self.g_planes_xy, self.g_planes_xz, self.g_planes_yz)
         idx, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[0]
+        # print(f"First frame: idx: {idx}, gt_color: {gt_color.shape}, gt_depth: {gt_depth.shape}, gt_c2w: {gt_c2w.shape}")
+        # exit()
         data_iterator = iter(self.frame_loader)
         # skip first
         # next(data_iterator)
@@ -662,8 +656,7 @@ class Mapper(object):
                 scene_idx=scene_idx
             )
 
-            if idx!=0:
-                self.visualizer.save_nbv_res(idx, gt_depth, gt_color, render_depth, render_graspness, cur_gt_graspness, render_objectness_mask, cur_gt_objectness)
+            self.visualizer.save_nbv_res(idx, gt_depth, gt_color, render_depth, render_graspness, cur_gt_graspness, render_objectness_mask, cur_gt_objectness)
             #self.wandb_run.log({"mapping_time":time.time()-start_time})
             self.mapping_time = (time.time() - start_time)
 

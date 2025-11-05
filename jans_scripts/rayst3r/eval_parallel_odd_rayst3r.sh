@@ -3,16 +3,12 @@ export OMP_NUM_THREADS=8  # use 8 threads per process
 export CUDA_VISIBLE_DEVICES=1
 
 max_jobs=4
-mapping_depth_source="gt"
-random_nbv=false
-force=false
+force=true
 
-random_nbv_str=""
-if [ "$random_nbv" = true ]; then
-    random_nbv_str="_random_nbv"
-fi
-mapping_depth_source_str="${mapping_depth_source}${random_nbv_str}"
 checkpoint_path="/workspace/ckpts2/checkpoint.tar"
+predictions_dir="/data/graspnet/output/GraspNet/rayst3r_zero_shot"
+dataset_root="/data/graspnet"
+
 force_flag=""
 if [ "$force" = true ]; then
     force_flag="--force"
@@ -24,13 +20,11 @@ for scene_id_str in $(seq -f "%04g" 100 189); do
 
     # process only odd scene IDs
     if (( scene_id % 2 == 1 )); then
-        python eval.py \
-            --scene_dir /data/graspnet/output/GraspNet/${mapping_depth_source_str}/scene_${scene_id_str}_nbv \
-            --dataset_root /data/graspnet \
+        python jans_scripts/rayst3r/eval_rayst3r.py \
+            --predictions_dir ${predictions_dir} \
+            --dataset_root ${dataset_root} \
             --scene_id ${scene_id_str} \
-            --config configs/GraspNet/${mapping_depth_source_str}/scene_${scene_id_str}.yaml \
             --graspnet_checkpoint ${checkpoint_path} \
-            --eval_out_dir_name "eval_out_corrected_ap" \
             ${force_flag} &
     fi
 

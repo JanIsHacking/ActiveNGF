@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from jans_scripts.geometry import compute_pointmap
 import os
-
+import open3d as o3d
 
 pointmap_colors = [
     [0, 0, 255],
@@ -23,6 +23,17 @@ pointmap_colors = [
     [128, 0, 128],
     [128, 128, 128],
 ]
+
+def visualize_mesh(mesh: o3d.geometry.TriangleMesh, suffix: str = "mesh"):
+    rr.log(
+        f"world/mesh/{suffix}",
+        rr.Mesh3D(
+            vertex_positions=np.asarray(mesh.vertices),
+            triangle_indices=np.asarray(mesh.triangles),
+            vertex_normals=np.asarray(mesh.vertex_normals),
+            vertex_colors=np.asarray(mesh.vertex_colors),
+        ),
+    )
 
 def visualize_pc_with_normals(
     points: torch.Tensor,
